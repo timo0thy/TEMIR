@@ -14,7 +14,7 @@ cluster_flag = FALSE
 # Number of cores to use:
 # This will be overwritten by system-dependent setting if "cluster_flag=TRUE".
 # Use parallel::detectCores() for all available cores
-n_core = detectCores()
+n_core = parallel::detectCores()
 
 # Debugging mode?
 # If turned on, no output data will be saved externally. Debugging mode should be run only in an R console environment (i.e., not via a UNIX command line), and is convenient for single-site simulation.
@@ -122,7 +122,7 @@ use_TEMIR_gs_flag = TRUE
 
 # Use TEMIR water stress to scale stomatal resistance in Zhang et al. [2003]?
 # If not, water stress follows Zhang et al. [2003] method.
-use_TEMIR_beta_flag = FALSE
+use_TEMIR_beta_flag = TRUE
 
 # CO2 scaling function for dry deposition velocity calculations:
 CO2_scale_flag = TRUE

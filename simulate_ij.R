@@ -178,8 +178,8 @@ f_simulate_ij = function(IJ) {
          tau_leaf = taulvis[ipft]
          # Stem transmittance for PAR:
          tau_stem = tausvis[ipft]
-         # Medlyn model parameter:
-         g1_med = g1_med_table[ipft]
+         # Fraction of roots in top soil layer:
+         root_frac_in_top = fraction_in_top[ipft]
          
          # Soil parameters:
          # Saturated soil matric potential for bulk root zone (mm):
@@ -188,6 +188,10 @@ f_simulate_ij = function(IJ) {
          theta_sat = theta_sat_PFT[i,j,ipft]
          # Clapp and Homberger parameter for bulk root zone:
          b_psi = b_psi_PFT[i,j,ipft]
+         # Saturated soil matric potential at top soil layer (mm):
+         psi_sat_top = psi_sat_PFT_top[i,j,ipft]
+         # Clapp and Homberger parameter at top soil layer (mm):
+         b_psi_top = b_psi_PFT_top[i,j,ipft]
          
          #######################################################################
          
@@ -357,6 +361,9 @@ f_simulate_ij = function(IJ) {
             soil_wetness_root = GWETROOT[i,j,h]
             # Soil wetness for top soil (0-1):
             soil_wetness_top = GWETTOP[i,j,h]
+            # Soil wetness for bottom soil layer (0-1):
+            # Since GWETTOP and GWETROOT overlaps, in order to obtain wetness of bottom layer, the wetness of top layer is removed from GWETROOT here. 0.05 and 0.95 are the depths of top and bottom layers, respectively.
+            soil_wetness_bottom = (soil_wetness_root - soil_wetness_top*0.05)/0.95
             # Soil volumetric water content for top soil (0-1):
             theta_wtop = theta_sat*soil_wetness_top
             # Cloud fraction (0-1):
@@ -492,9 +499,13 @@ f_simulate_ij = function(IJ) {
             ####################################################################
             
             # Soil water stress function:
-            beta_t = f_water_stress(soil_wetness=soil_wetness_root, 
+            beta_t = f_water_stress(soil_wetness=soil_wetness_bottom,
+                                    soil_wetness_top=soil_wetness_top,
+                                    root_frac_in_top=root_frac_in_top,
+                                    theta_w=theta_w, theta_sat=theta_sat,
                                     psi_sat=psi_sat, b_psi=b_psi, 
-                                    psi_c=psi_c, psi_o=psi_o)
+                                    psi_c=psi_c, psi_o=psi_o,
+                                    psi_sat_top=psi_sat_top, b_psi_top=b_psi_top)
             
             # Find canopy photosynthesis:
             canopy_photosyn = f_canopy_photosyn(c_a=c_a, e_a=e_a, 
@@ -530,7 +541,7 @@ f_simulate_ij = function(IJ) {
                                                 leaf_N_conc=leaf_N_conc, 
                                                 u_leaf=u_leaf, d_leaf=d_leaf, 
                                                 met_cond=met_cond_flag, 
-                                                tol=1e-3, g1_med=g1_med)
+                                                tol=1e-3)
             
             # Total absorbed PAR (W m^-2):
             PAR_tot = phi_sun * LAI_sun + phi_sha * LAI_sha

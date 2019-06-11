@@ -107,9 +107,6 @@ lnctop = 1/(leafcn*slatop)
 vcmax25top = lnctop*flnr*fnr*ar25
 vcmax25top[1] = 0
 
-# Parameters for Medlyn model
-g1_med_table = c(NA, 2.35, 2.35, 2.35, 4.12, 4.12, 4.45, 4.45, 4.45, 4.7, 4.7, 4.7, 2.22, 5.25, 1.62, NA, NA, 1.79, 1.79, NA, NA, NA, NA, 5.79, 5.79)
-
 ################################################################################
 ### Surface data from CLM default ncdf file:
 ################################################################################
@@ -124,7 +121,12 @@ LONGXY = ncvar_get(nc, 'LONGXY')
 LON_CLM = LONGXY[,1]
 LATIXY = ncvar_get(nc, 'LATIXY')
 LAT_CLM = LATIXY[1,]
-nlevsoi = 10
+# Number of CLM soil layers within CLM root zone:
+nlevsoi = 10   
+# Number of CLM soil layers within TEMIR top soil layer:
+nlevsoi_top = 3  
+# Number of CLM soil layers within TEMIR root zone:
+nlevsoi_root = 8  
 # # Indices of natural PFT:
 # natpft = ncvar_get(nc, 'natpft')
 # # Indices of crop PFT:
@@ -207,15 +209,26 @@ b_psimin = 2.91 + 0.159*PCT_CLAY
 b_psiom = 2.7
 # Clapp and Homberger parameter:
 b_psi_xyz = (1 - om_frac)*b_psimin + om_frac*b_psiom
+# Clapp and Homberger parameter in TEMIR top soil layer:
+b_psi_xyz_top = b_psi_xyz[, , 1:nlevsoi_top]
+# Clapp and Homberger parameter in TEMIR bottom soil layer:
+b_psi_xyz_root = b_psi_xyz[, , nlevsoi_top:nlevsoi_root]
 # Saturated mineral soil matric potential (mm):
 psi_satmin = -10.0*10^(1.88 - 0.0131*PCT_SAND)
 # Saturated organic matter matric potential (mm):
 psi_satom = -10.3
 # Saturated soil matric potential (mm):
 psi_sat_xyz = (1 - om_frac)*psi_satmin + om_frac*psi_satom
+# Saturated soil matric potential in TEMIR top soil layer (mm):
+psi_sat_xyz_top = psi_sat_xyz[, , 1:nlevsoi_top]
+# Saturated soil matric potential in TEMIR bottom soil layer (mm):
+psi_sat_xyz_root = psi_sat_xyz[, , nlevsoi_top:nlevsoi_root]
 
 # Depth at layer interface for top 10 layers plus the soil surface (m):
 z_hi = c(0, 0.0175, 0.0451, 0.0906, 0.1655, 0.2891, 0.4929, 0.8289, 1.3828, 2.2961, 3.8019)
+# Depth of each soil layer for top 10 layers (m):
+soil_frac = c(0.0175, 0.0276, 0.0455, 0.075, 0.1236, 0.2038, 0.3360, 0.5539, 0.9133, 1.5058)
+
 # Root fraction (0-1) (dim1 = PFT; dim2 = soil level):
 root_frac = matrix(0, nrow=length(pftname), ncol=nlevsoi)
 for (i in 1:nlevsoi) {
@@ -225,9 +238,49 @@ for (i in 1:nlevsoi) {
       root_frac[,i] = 0.5*(exp(-roota_par*z_hi[i]) + exp(-rootb_par*z_hi[i]))
    }
 }
+# Depth of TEMIR top soil layer:
+z1_TEMIR = 0.05 
+# Depth of TEMIR root zone:
+z2_TEMIR = 1 
+# CLM soil layer which bounds TEMIR top soil layer:
+z1_ind = tail(which(z_hi < z1_TEMIR), 1)
+# CLM soil layer which bounds TEMIR root zone:
+z2_ind = tail(which(z_hi < z2_TEMIR), 1)
+# Soil and root depths at the bounding CLM layers (m):
+soil_frac_bound_top = z1_TEMIR - z_hi[z1_ind]
+soil_frac_bound_root = z2_TEMIR - z_hi[z2_ind]
+root_frac_bound =  0.5*(exp(-roota_par*z_hi[z1_ind]) + exp(-rootb_par*z_hi[z1_ind]) - exp(-roota_par*z1_TEMIR) - exp(-rootb_par*z1_TEMIR))
+# Soil and root portions at the bounding CLM layers (0-1):
+frac_bound_soil_top = soil_frac_bound_top/soil_frac[z1_ind]
+frac_bound_soil_root = soil_frac_bound_root/soil_frac[z2_ind]
+frac_bound_root = root_frac_bound/root_frac[, z1_ind]
+# Soil fraction with respect to two TEMIR soil layers (0-1):
+soil_frac_top = matrix(0, nrow=1, ncol=nlevsoi_top)
+for (i in 1:nlevsoi_top) {
+  if (i < nlevsoi_top) {
+    soil_frac_top[i] = soil_frac[i]/z1_TEMIR
+  } else {
+    soil_frac_top[i] = soil_frac[i]*frac_bound_soil_top/z1_TEMIR
+  }
+}
+soil_frac_top = matrix(rep(soil_frac_top, each = length(pftname)), nrow = length(pftname), byrow = FALSE)
+soil_frac_root = matrix(0, nrow=1, ncol=(nlevsoi_root - nlevsoi_top + 1))
+for (i in nlevsoi_top:nlevsoi_root) {
+  if (i == nlevsoi_top) {
+    soil_frac_root[i - nlevsoi_top + 1] = soil_frac[i]*(1 - frac_bound_soil_top)/(z2_TEMIR - z1_TEMIR)
+  } else if (i == nlevsoi_root) {
+    soil_frac_root[i - nlevsoi_top + 1] = soil_frac[i]*frac_bound_soil_root/(z2_TEMIR - z1_TEMIR)
+  }  else {
+    soil_frac_root[i - nlevsoi_top + 1] = soil_frac[i]/(z2_TEMIR - z1_TEMIR)
+  }
+}
+soil_frac_root = matrix(rep(soil_frac_root, each = length(pftname)), nrow = length(pftname), byrow = FALSE)
+
+# Fraction of roots in TEMIR top soil layer:
+fraction_in_top = apply(root_frac[, 1:(nlevsoi_top-1)], 1, sum) + root_frac[,nlevsoi_top] * frac_bound_root
 
 # Calculate bulk soil parameters by PFT for single soil column:
-subfn = 'bulk_soil_PFT_2000.RData'
+subfn = 'bulk_soil_PFT_2000_v1.1b.RData'
 filename = paste0(processed_surf_data_dir, subfn)
 
 if (length(dir(path=processed_surf_data_dir, pattern=subfn)) == 0) {
@@ -238,21 +291,25 @@ if (length(dir(path=processed_surf_data_dir, pattern=subfn)) == 0) {
    PCT_SAND_BULK = array(NaN, dim=c(length(LON_CLM), length(LAT_CLM), length(pftname)))
    PCT_CLAY_BULK = array(NaN, dim=c(length(LON_CLM), length(LAT_CLM), length(pftname)))
    OM_FRAC_BULK = array(NaN, dim=c(length(LON_CLM), length(LAT_CLM), length(pftname)))
+   B_PSI_BULK_top = array(NaN, dim=c(length(LON_CLM), length(LAT_CLM), length(pftname)))
+   PSI_SAT_BULK_top = array(NaN, dim=c(length(LON_CLM), length(LAT_CLM), length(pftname)))
    for (i in 1:length(LON_CLM)) {
       if (i/10 == floor(i/10)) print(paste0('Calculating bulk soil parameters for lon = ', as.character(LON_CLM[i]), '...'), quote=FALSE)
       for (j in 1:length(LAT_CLM)) {
          for (ipft in 1:length(pftname)) {
             THETA_SAT_BULK[i,j,ipft] = sum(theta_sat_xyz[i,j,]*root_frac[ipft,], na.rm=TRUE)
-            B_PSI_BULK[i,j,ipft] = sum(b_psi_xyz[i,j,]*root_frac[ipft,], na.rm=TRUE)
-            PSI_SAT_BULK[i,j,ipft] = sum(psi_sat_xyz[i,j,]*root_frac[ipft,], na.rm=TRUE)
+            B_PSI_BULK[i,j,ipft] = sum(b_psi_xyz_root[i,j,]*soil_frac_root[ipft,], na.rm=TRUE)
+            PSI_SAT_BULK[i,j,ipft] = sum(psi_sat_xyz_root[i,j,]*soil_frac_root[ipft,], na.rm=TRUE)
             PCT_SAND_BULK[i,j,ipft] = sum(PCT_SAND[i,j,]*root_frac[ipft,], na.rm=TRUE)
             PCT_CLAY_BULK[i,j,ipft] = sum(PCT_CLAY[i,j,]*root_frac[ipft,], na.rm=TRUE)
             OM_FRAC_BULK[i,j,ipft] = sum(om_frac[i,j,]*root_frac[ipft,], na.rm=TRUE)
+            B_PSI_BULK_top[i,j,ipft] = sum(b_psi_xyz_top[i,j,]*soil_frac_top[ipft,], na.rm=TRUE)
+            PSI_SAT_BULK_top[i,j,ipft] = sum(psi_sat_xyz_top[i,j,]*soil_frac_top[ipft,], na.rm=TRUE)
          }
       }
    }
    exist_bulk_soil = TRUE
-   save(list=c('THETA_SAT_BULK', 'B_PSI_BULK', 'PSI_SAT_BULK', 'PCT_SAND_BULK', 'PCT_CLAY_BULK', 'OM_FRAC_BULK', 'LON_CLM', 'LAT_CLM', 'pftname', 'pftnum', 'exist_bulk_soil'), file=filename)
+   save(list=c('THETA_SAT_BULK', 'B_PSI_BULK', 'B_PSI_BULK_top', 'PSI_SAT_BULK', 'PSI_SAT_BULK_top', 'PCT_SAND_BULK', 'PCT_CLAY_BULK', 'OM_FRAC_BULK', 'LON_CLM', 'LAT_CLM', 'pftname', 'pftnum', 'exist_bulk_soil'), file=filename)
 } else {
    if (length(ls(pattern='exist_bulk_soil')) == 0) {
       print('Loading bulk soil parameters...', quote=FALSE)
@@ -365,7 +422,7 @@ print(paste0('Latitudes from ', as.character(head(lat, 1)), ' to ', as.character
 
 # Regrid surface data to match with met field resolution:
 
-subfn = 'surf_data_regrid_2000.RData'
+subfn = 'surf_data_regrid_2000_v1.1b.RData'
 filename = paste0(processed_surf_data_dir, subfn)
 
 if (!file.exists(filename)) {
@@ -402,6 +459,12 @@ if (!file.exists(filename)) {
    # It is always negative, so can't use the "zero.to.Nan" function in the same way... (fixed by Tai on 25 Oct 2017)
    psi_sat_PFT = -sp.regrid(spdata=zero.to.NaN(-PSI_SAT_BULK), lon.in=LON_CLM, lat.in=LAT_CLM, lon.out=lon, lat.out=lat)
    psi_sat_PFT = NaN.to.zero(psi_sat_PFT)
+   # Clapp and Homberger parameter by PFT in top soil layer:
+   b_psi_PFT_top = sp.regrid(spdata=zero.to.NaN(B_PSI_BULK_top), lon.in=LON_CLM, lat.in=LAT_CLM, lon.out=lon_met, lat.out=lat_met)
+   b_psi_PFT_top = NaN.to.zero(b_psi_PFT_top)
+   # Saturated soil matric potential by PFT in top soil layer (mm):
+   psi_sat_PFT_top = -sp.regrid(spdata=zero.to.NaN(-PSI_SAT_BULK_top), lon.in=LON_CLM, lat.in=LAT_CLM, lon.out=lon_met, lat.out=lat_met)
+   psi_sat_PFT_top = NaN.to.zero(psi_sat_PFT_top)
    # Soil albedo:
    # 3rd dim = [dry/vis, dry/nir, saturated/vis, saturated/nir]
    soil_albedo = sp.regrid(spdata=zero.to.NaN(SOIL_ALBEDO), lon.in=LON_CLM, lat.in=LAT_CLM, lon.out=lon, lat.out=lat)
@@ -413,7 +476,7 @@ if (!file.exists(filename)) {
    
    exist_regrid = TRUE
    
-   save(list=c('LAI_mon_PFT', 'SAI_mon_PFT', 'PFT_frac', 'theta_sat_PFT', 'b_psi_PFT', 'psi_sat_PFT', 'soil_color', 'soil_albedo', 'grid_area', 'lon', 'lat', 'pftname', 'pftnum', 'exist_regrid'), file=filename)
+   save(list=c('LAI_mon_PFT', 'SAI_mon_PFT', 'PFT_frac', 'theta_sat_PFT', 'b_psi_PFT', 'psi_sat_PFT', 'b_psi_PFT_top', 'psi_sat_PFT_top', 'soil_color', 'soil_albedo', 'grid_area', 'lon', 'lat', 'pftname', 'pftnum', 'exist_regrid'), file=filename)
    
 } else {
    if (length(ls(pattern='exist_regrid')) == 0) {
